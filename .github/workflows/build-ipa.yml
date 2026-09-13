@@ -13,20 +13,42 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
-      - name: Install CocoaPods
+      - name: Find Project and Setup CocoaPods
         run: |
-          pod install || pod install --repo-update || true
+          PROJ_PATH=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
+          PROJ_DIR=$(dirname "$PROJ_PATH")
+          echo "PROJ_DIR=$PROJ_DIR" >> $GITHUB_ENV
+          
+          cd "$PROJ_DIR"
+          if [ -f "Podfile" ]; then
+            echo "Podfile gefunden, installiere Pods..."
+            pod install || pod install --repo-update
+          fi
 
       - name: Build Xcode Project
         run: |
-          PROJECT=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
-          SCHEME=$(xcodebuild -project "$PROJECT" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
+          cd "$PROJ_DIR"
           
-          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          # Workspaces vs Projects prüfen
+          WORKSPACE=$(find . -maxdepth 2 -name "*.xcworkspace" -not -path "*/Pods/*" | head -n 1)
+          PROJECT=$(find . -maxdepth 2 -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
+          
+          if [ -n "$WORKSPACE" ]; then
+            echo "Workspace gefunden: $WORKSPACE"
+            SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
+            echo "Bauen mit Scheme: $SCHEME"
+            xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
+          else
+            echo "Projekt gefunden: $PROJECT"
+            SCHEME=$(xcodebuild -project "$PROJECT" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
+            echo "Bauen mit Scheme: $SCHEME"
+            xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
+          fi
 
       - name: Zip Payload to IPA
         run: |
-          APP_PATH=$(find . -type d -name "*.app" | head -n 1)
+          cd "$PROJ_DIR"
+          APP_PATH=$(find build -type d -name "*.app" | head -n 1)
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r SegwayWorld.ipa Payload
@@ -35,4 +57,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SegwayWorld-IPA
-          path: SegwayWorld.ipa
+          path: "**/SegwayWorld.ipa"
