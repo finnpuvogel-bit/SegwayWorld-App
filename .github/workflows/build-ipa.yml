@@ -13,26 +13,25 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
-      - name: Clean Firebase Dependencies and Build
+      - name: Build Xcode Project
         run: |
-          # 1. Projektordner finden
-          PROJ_FILE=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
+          # 1. Absoluten Pfad zur Xcode-Projektdatei finden
+          PROJ_FILE=$(find "$GITHUB_WORKSPACE" -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
           PROJ_DIR=$(dirname "$PROJ_FILE")
+          
+          # 2. In den Ordner der xcodeproj wechseln
           cd "$PROJ_DIR"
           
-          # 2. Firebase-Referenzen aus dem Swift-Code entfernen, um Build-Blockaden zu verhindern
-          find . -name "*.swift" -exec sed -i '' '/import Firebase/d' {} +
-          find . -name "*.swift" -exec sed -i '' '/Messaging/d' {} +
+          # 3. Firebase-Imports auskommentieren gegen Swift-Compilerfehler
+          find . -name "*.swift" -exec sed -i '' 's/import Firebase/\/\/ import Firebase/g' {} +
           
-          # 3. Falls vorhanden, PushNotifications.swift leeren
-          if [ -f "SegwayWorld/PushNotifications.swift" ]; then
-            echo "// Disabled Push Notifications" > SegwayWorld/PushNotifications.swift
-          fi
+          # 4. Nur den Dateinamen für xcodebuild nutzen
+          PROJ_NAME=$(basename "$PROJ_FILE")
+          SCHEME=$(xcodebuild -project "$PROJ_NAME" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
           
-          # 4. Direktes Compilieren des Xcode-Projekts
-          SCHEME=$(xcodebuild -project "$PROJ_FILE" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
-          
-          xcodebuild -project "$PROJ_FILE" \
+          # 5. Build starten
+          xcodebuild build \
+            -project "$PROJ_NAME" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
@@ -44,7 +43,7 @@ jobs:
 
       - name: Zip Payload to IPA
         run: |
-          APP_PATH=$(find . -type d -name "*.app" | head -n 1)
+          APP_PATH=$(find "$GITHUB_WORKSPACE" -type d -name "*.app" | head -n 1)
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r SegwayWorld.ipa Payload
@@ -53,4 +52,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SegwayWorld-IPA
-          path: "**/SegwayWorld.ipa"
+          path: SegwayWorld.ipa
