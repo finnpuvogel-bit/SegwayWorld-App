@@ -13,25 +13,33 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
-      - name: Install Pods and Build
+      - name: Install Pods and Build Workspace
         run: |
-          # 1. Ordner mit dem Projekt finden
+          # 1. In das Projektverzeichnis wechseln
           PROJ_FILE=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
           PROJ_DIR=$(dirname "$PROJ_FILE")
           cd "$PROJ_DIR"
           
-          # 2. CocoaPods installieren (für FirebaseMessaging)
-          pod repo update || true
-          pod install || true
+          # 2. Pods neu installieren
+          pod deintegrate || true
+          pod install --repo-update
 
-          # 3. Prüfen ob Workspace entstanden ist, sonst Projekt nutzen
-          WORKSPACE=$(find . -maxdepth 2 -name "*.xcworkspace" -not -path "*/Pods/*" | head -n 1)
+          # 3. Den generierten Workspace suchen
+          WORKSPACE=$(find . -name "*.xcworkspace" -not -path "*/Pods/*" | head -n 1)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag' | head -n 1 | xargs)
           
-          if [ -n "$WORKSPACE" ]; then
-            xcodebuild -workspace "$WORKSPACE" -scheme "SegwayWorld" -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" AD_HOC_CODE_SIGNING_ALLOWED=YES
-          else
-            xcodebuild -project "$PROJ_FILE" -scheme "SegwayWorld" -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" AD_HOC_CODE_SIGNING_ALLOWED=YES
-          fi
+          echo "Baue Workspace: $WORKSPACE mit Scheme: $SCHEME"
+          
+          # 4. Erzwinge Workspace-Build
+          xcodebuild -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
       - name: Zip Payload to IPA
         run: |
